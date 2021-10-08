@@ -15,7 +15,7 @@ namespace Server
     {
         static private TcpListener tcpListener = new TcpListener(IPAddress.Any, 1234);
         static private List<TcpClient> tcpClientsList = new List<TcpClient>();
-        static private SqlConnection sqlConnection = new SqlConnection(@"Data Source=SEYIT-PC;Initial Catalog=DB;Integrated Security=True;");
+        static private string connectionString = "Data Source=SEYIT-PC;Initial Catalog=DB;Integrated Security=True;";
         static private SqlCommand sqlCommand;
         static private SqlDataReader sqlDataReader;
         static void Main(string[] args)
@@ -113,10 +113,10 @@ namespace Server
             for (int i = 0; i < message_tokens.Count; i += 2)
             {
                 column_names.Add(message_tokens[i].Trim());
-                values.Add(DatabaseManager.ConvertTypeByColumnType(table_name, message_tokens[i].Trim(), message_tokens[i + 1].Trim()));
+                values.Add(ConvertTypeByColumnType(table_name, message_tokens[i].Trim(), message_tokens[i + 1].Trim()));
             }
             int affected_rows = 0;
-            try
+            using (SqlConnection sqlConnection = new SqlConnection(connectionString))
             {
                 sqlConnection.Open();
                 string query = "Insert into " + table_name + "(";
@@ -138,13 +138,6 @@ namespace Server
                 }
                 Console.WriteLine(sqlCommand.CommandText);
                 affected_rows = sqlCommand.ExecuteNonQuery();
-            }
-            catch (SqlException ex)
-            {
-                Console.WriteLine(ex.Message);
-            }
-            finally
-            {
                 sqlConnection.Close();
             }
             if (affected_rows != 0)
@@ -154,7 +147,7 @@ namespace Server
             }
             else
             {
-                TCPServerSender("Error !!!", senderClient);
+                TCPServerSender("FAIL", senderClient);
             }
         }
         static public void QueryUpdate(string message, TcpClient senderClient)
@@ -164,7 +157,7 @@ namespace Server
             message = message.Substring("QUERY_UPDATE".Length + 1 + table_name.Length + 1);
             message_tokens = message.Split(',');
             string column_name = message_tokens[0];
-            object value = DatabaseManager.ConvertTypeByColumnType(table_name, column_name, message_tokens[1]);
+            object value = ConvertTypeByColumnType(table_name, column_name, message_tokens[1]);
             string[] conditions = message.Substring(column_name.Length + 1 + value.ToString().Length + 1).TrimEnd(',').Split(',');
 
             List<string> column_names = new List<string>();
@@ -173,10 +166,10 @@ namespace Server
             for (int i = 0; i < conditions.Length; i += 2)
             {
                 column_names.Add(conditions[i].Trim());
-                values.Add(DatabaseManager.ConvertTypeByColumnType(table_name, conditions[i].Trim(), conditions[i + 1].Trim()));
+                values.Add(ConvertTypeByColumnType(table_name, conditions[i].Trim(), conditions[i + 1].Trim()));
             }
             int affected_rows = 0;
-            try
+            using (SqlConnection sqlConnection = new SqlConnection(connectionString))
             {
                 sqlConnection.Open();
                 string command = "Update " + table_name + " set " + column_name + " = @value where ";
@@ -196,15 +189,9 @@ namespace Server
                 }
                 Console.WriteLine(sqlCommand.CommandText);
                 affected_rows = sqlCommand.ExecuteNonQuery();
-            }
-            catch (SqlException ex)
-            {
-                Console.WriteLine(ex.Message);
-            }
-            finally
-            {
                 sqlConnection.Close();
             }
+
             if (affected_rows != 0)
             {
                 TCPServerSender("OK", senderClient);
@@ -212,7 +199,7 @@ namespace Server
             }
             else
             {
-                TCPServerSender("Error !!!", senderClient);
+                TCPServerSender("FAIL", senderClient);
             }
         }
         static public void QueryGet(string message, TcpClient senderClient)
@@ -253,7 +240,7 @@ namespace Server
                 {
                     column_names.Add(message_tokens[i]);
                     query += column_names.Last() + " = @" + column_names.Last();
-                    values.Add(DatabaseManager.ConvertTypeByColumnType(table_name, message_tokens[i], message_tokens[i + 1]));
+                    values.Add(ConvertTypeByColumnType(table_name, message_tokens[i], message_tokens[i + 1]));
                     i++;
                     if (i + 1 != message_tokens.Count)
                     {
@@ -268,7 +255,7 @@ namespace Server
 
             Console.WriteLine("Received command: " + query);
 
-            try
+            using (SqlConnection sqlConnection = new SqlConnection(connectionString))
             {
                 sqlConnection.Open();
                 sqlCommand = new SqlCommand(query, sqlConnection);
@@ -307,15 +294,9 @@ namespace Server
                         }
                     }
                 }
-            }
-            catch (SqlException ex)
-            {
-                Console.WriteLine(ex.Message);
-            }
-            finally
-            {
                 sqlConnection.Close();
             }
+
             if (return_val != null)
             {
                 TCPServerSender(return_val.TrimEnd(','), senderClient);
@@ -338,10 +319,10 @@ namespace Server
             for (int i = 0; i < message_tokens.Length; i += 2)
             {
                 column_names.Add(message_tokens[i]);
-                values.Add(DatabaseManager.ConvertTypeByColumnType(table_name, message_tokens[i], message_tokens[i + 1]));
+                values.Add(ConvertTypeByColumnType(table_name, message_tokens[i], message_tokens[i + 1]));
             }
             int affected_rows = 0;
-            try
+            using (SqlConnection sqlConnection = new SqlConnection(connectionString))
             {
                 sqlConnection.Open();
                 string command = "Delete from " + table_name + " where ";
@@ -361,15 +342,9 @@ namespace Server
                 }
                 Console.WriteLine(sqlCommand.CommandText);
                 affected_rows = sqlCommand.ExecuteNonQuery();
-            }
-            catch (SqlException ex)
-            {
-                Console.WriteLine(ex.Message);
-            }
-            finally
-            {
                 sqlConnection.Close();
             }
+
             if (affected_rows != 0)
             {
                 TCPServerSender("OK", senderClient);
@@ -377,13 +352,13 @@ namespace Server
             }
             else
             {
-                TCPServerSender("Error !!!", senderClient);
+                TCPServerSender("FAIL", senderClient);
             }
         }
         static public void LoginAttempt(List<string> message, TcpClient senderClient)
         {
             string return_val = "";
-            object[] row = DatabaseManager.GetUserData(message[1]);
+            object[] row = GetUserData(message[1]);
 
             if (row == null)
             {
@@ -441,6 +416,70 @@ namespace Server
                     }
                 }
             }
+        }
+
+        static public object[] GetUserData(string username)
+        {
+            object[] list = null;
+
+            using (SqlConnection sqlConnection = new SqlConnection(connectionString))
+            {
+                sqlConnection.Open();
+                sqlCommand = new SqlCommand("Select password, salt, status, authority from Users where username = @username", sqlConnection);
+                sqlCommand.Parameters.Add(new SqlParameter("@username", username));
+                Console.WriteLine(sqlCommand.CommandText);
+                sqlDataReader = sqlCommand.ExecuteReader();
+                if (sqlDataReader.Read())
+                {
+                    list = new object[4];
+                    list[0] = sqlDataReader["password"];
+                    list[1] = sqlDataReader["salt"];
+                    list[2] = sqlDataReader["status"];
+                    list[3] = sqlDataReader["authority"];
+                }
+            }
+
+            return list;
+        }
+        static public object ConvertTypeByColumnType(string table_name, string column_name, string value)
+        {
+            object return_val = null;
+
+            using (SqlConnection sqlConnection = new SqlConnection(connectionString))
+            {
+                sqlConnection.Open();
+                string cmd = "Select DATA_TYPE from INFORMATION_SCHEMA.COLUMNS where table_name = @table_name AND column_name = @column_name";
+                sqlCommand = new SqlCommand(cmd, sqlConnection);
+                sqlCommand.Parameters.Add(new SqlParameter("table_name", table_name));
+                sqlCommand.Parameters.Add(new SqlParameter("column_name", column_name));
+                sqlDataReader = sqlCommand.ExecuteReader();
+                if (sqlDataReader.Read())
+                {
+                    if (sqlDataReader["DATA_TYPE"].ToString() == "varchar")
+                    {
+                        return_val = value.ToString().Trim();
+                    }
+                    else if (sqlDataReader["DATA_TYPE"].ToString() == "int")
+                    {
+                        return_val = Convert.ToInt32(value);
+                    }
+                    else if (sqlDataReader["DATA_TYPE"].ToString() == "bit")
+                    {
+                        return_val = value.ToString() == "True" ? true : false;
+                    }
+                    else if (sqlDataReader["DATA_TYPE"].ToString() == "float")
+                    {
+                        return_val = Convert.ToDouble(value.Replace('.', ','));
+                    }
+                    else
+                    {
+                        Console.WriteLine("Undefined data type.");
+                        return_val = value;
+                    }
+                }
+            }
+
+            return return_val;
         }
     }
 }
